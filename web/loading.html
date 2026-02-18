@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loading... | ATLAS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Orbitron:wght@500;600;700;800&display=swap"
+        rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #0a0e1a;
+            color: #e2e8f0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .bg-effects {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .grid-overlay {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background-image: linear-gradient(#00ff88 1px, transparent 1px),
+                linear-gradient(90deg, #00ff88 1px, transparent 1px);
+            background-size: 60px 60px;
+            opacity: 0.03;
+        }
+
+        .loading-container {
+            text-align: center;
+            max-width: 500px;
+            padding: 20px;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Terminal */
+        .terminal {
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.05), rgba(0, 212, 255, 0.05));
+            border: 2px solid #00ff88;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0, 255, 136, 0.3);
+            margin-bottom: 32px;
+        }
+
+        .terminal-header {
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.1), rgba(0, 212, 255, 0.1));
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 2px solid #00ff88;
+        }
+
+        .terminal-dots {
+            display: flex;
+            gap: 6px;
+        }
+
+        .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .dot.red {
+            background: #ff4757;
+        }
+
+        .dot.yellow {
+            background: #ffd43b;
+        }
+
+        .dot.green {
+            background: #51cf66;
+        }
+
+        .terminal-title {
+            font-family: 'Fira Code', monospace;
+            font-size: 0.8rem;
+            color: #00ff88;
+            letter-spacing: 1px;
+        }
+
+        .terminal-body {
+            padding: 20px;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.85rem;
+            text-align: left;
+            min-height: 180px;
+        }
+
+        .terminal-line {
+            margin-bottom: 8px;
+            opacity: 0;
+            animation: fadeIn 0.5s ease forwards;
+        }
+
+        .terminal-line:nth-child(1) {
+            animation-delay: 0.1s;
+        }
+
+        .terminal-line:nth-child(2) {
+            animation-delay: 0.4s;
+        }
+
+        .terminal-line:nth-child(3) {
+            animation-delay: 0.7s;
+        }
+
+        .terminal-line:nth-child(4) {
+            animation-delay: 1s;
+        }
+
+        .terminal-line:nth-child(5) {
+            animation-delay: 1.3s;
+        }
+
+        @keyframes fadeIn {
+            to {
+                opacity: 1;
+            }
+        }
+
+        .prompt {
+            color: #00ff88;
+        }
+
+        .command {
+            color: #e2e8f0;
+        }
+
+        .output {
+            color: #94a3b8;
+            margin-left: 20px;
+            display: block;
+        }
+
+        .success {
+            color: #51cf66;
+        }
+
+        .cursor {
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+
+            0%,
+            50% {
+                opacity: 1;
+            }
+
+            51%,
+            100% {
+                opacity: 0;
+            }
+        }
+
+        /* Progress */
+        .progress-container {
+            width: 100%;
+            height: 6px;
+            background: rgba(0, 255, 136, 0.1);
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            margin-bottom: 32px;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(135deg, #00ff88, #00d4ff);
+            width: 0%;
+            box-shadow: 0 0 20px #00ff88;
+            animation: loading 3s ease-in-out forwards;
+            border-radius: 10px;
+        }
+
+        @keyframes loading {
+            0% {
+                width: 0%;
+            }
+
+            50% {
+                width: 60%;
+            }
+
+            100% {
+                width: 100%;
+            }
+        }
+
+        /* Logo */
+        .logo {
+            font-family: 'Orbitron', monospace;
+            font-size: 2.5rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #00ff88, #00d4ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: 4px;
+            margin-bottom: 16px;
+        }
+
+        .loading-text {
+            color: #94a3b8;
+            font-size: 1rem;
+            margin-bottom: 32px;
+        }
+
+        /* Security Tip */
+        .security-tip {
+            background: rgba(0, 255, 136, 0.05);
+            border: 1px solid rgba(0, 255, 136, 0.2);
+            border-radius: 12px;
+            padding: 16px 20px;
+            text-align: left;
+        }
+
+        .tip-label {
+            font-family: 'Fira Code', monospace;
+            font-size: 0.8rem;
+            color: #00ff88;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .tip-text {
+            color: #94a3b8;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            transition: opacity 0.3s ease;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="bg-effects">
+        <div class="grid-overlay"></div>
+    </div>
+
+    <div class="loading-container">
+        <div class="terminal">
+            <div class="terminal-header">
+                <div class="terminal-dots">
+                    <span class="dot red"></span>
+                    <span class="dot yellow"></span>
+                    <span class="dot green"></span>
+                </div>
+                <div class="terminal-title">ATLAS BOOT SEQUENCE</div>
+            </div>
+            <div class="terminal-body">
+                <div class="terminal-line">
+                    <span class="prompt">atlas@security:~$</span>
+                    <span class="command"> ./initialize.sh</span>
+                </div>
+                <div class="terminal-line">
+                    <span class="output">[INFO] Loading security modules...</span>
+                </div>
+                <div class="terminal-line">
+                    <span class="output">[INFO] Initializing vulnerability scanner...</span>
+                </div>
+                <div class="terminal-line">
+                    <span class="output success">[OK] All systems operational</span>
+                </div>
+                <div class="terminal-line">
+                    <span class="prompt">atlas@security:~$</span>
+                    <span class="cursor">_</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="progress-container">
+            <div class="progress-bar"></div>
+        </div>
+
+        <div class="logo">ATLAS</div>
+        <p class="loading-text">Preparing your security assessment environment</p>
+
+        <div class="security-tip">
+            <div class="tip-label">💡 Security Tip</div>
+            <p class="tip-text" id="tip-text">Always validate and sanitize user inputs to prevent injection attacks.</p>
+        </div>
+    </div>
+
+    <script>
+        const tips = [
+            "Always validate and sanitize user inputs to prevent injection attacks.",
+            "Use HTTPS to encrypt data in transit between clients and servers.",
+            "Implement proper authentication and session management.",
+            "Keep all software and dependencies up to date with security patches.",
+            "Use parameterized queries to prevent SQL injection attacks.",
+            "Implement Content Security Policy (CSP) headers to prevent XSS.",
+            "Never store sensitive data in client-side storage without encryption.",
+            "Use secure password hashing algorithms like bcrypt or Argon2."
+        ];
+
+        let tipIndex = 0;
+        const tipElement = document.getElementById('tip-text');
+
+        setInterval(() => {
+            tipIndex = (tipIndex + 1) % tips.length;
+            tipElement.style.opacity = 0;
+            setTimeout(() => {
+                tipElement.textContent = tips[tipIndex];
+                tipElement.style.opacity = 1;
+            }, 300);
+        }, 4000);
+    </script>
+</body>
+
+</html>
