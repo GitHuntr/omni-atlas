@@ -11,6 +11,7 @@ let currentScanId = sessionStorage.getItem('atlas_scan_id') || null;
 let selectedChecks = new Set();
 let allChecks = [];
 let currentUser = null;
+let allScans = [];
 
 // ========== Initialization ==========
 
@@ -25,6 +26,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     initNavigation();
     checkApiStatus();
+    startHeaderClock();
     loadDashboard();
 
     // Close user menu when clicking outside
@@ -56,9 +58,6 @@ function initNavigation() {
         });
     });
 
-    // Initialize sidebar state
-    initSidebarState();
-
     // Handle hash navigation
     if (window.location.hash) {
         const page = window.location.hash.replace('#', '');
@@ -79,24 +78,17 @@ function toggleSidebar() {
     }
 }
 
-// Toggle sidebar collapse (Desktop)
-function toggleSidebarCollapse() {
-    const sidebar = document.getElementById('sidebar');
-    if (sidebar) {
-        sidebar.classList.toggle('collapsed');
-        // Save preference
-        const isCollapsed = sidebar.classList.contains('collapsed');
-        localStorage.setItem('sidebarCollapsed', isCollapsed);
+// Live header clock
+function startHeaderClock() {
+    function tick() {
+        const el = document.getElementById('header-clock');
+        if (el) {
+            const now = new Date();
+            el.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
     }
-}
-
-// Initialize sidebar state
-function initSidebarState() {
-    const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
-    const sidebar = document.getElementById('sidebar');
-    if (isCollapsed && sidebar) {
-        sidebar.classList.add('collapsed');
-    }
+    tick();
+    setInterval(tick, 30000); // update every 30s
 }
 
 function showPage(pageName) {
@@ -136,6 +128,14 @@ function showPage(pageName) {
     } else if (pageName === 'scheduling') {
         loadSchedules();
     }
+    // Update header breadcrumb
+    const pageLabels = {
+        dashboard: 'Dashboard', 'new-scan': 'New Scan', checks: 'Vulnerability Checks',
+        demo: 'Demo Targets', reports: 'Reports', activity: 'Activity Log',
+        scheduling: 'Scheduled Scans', profile: 'Profile', settings: 'Settings'
+    };
+    const bc = document.getElementById('header-breadcrumb');
+    if (bc) bc.textContent = pageLabels[pageName] || pageName;
 
     window.location.hash = pageName;
 }
@@ -174,51 +174,192 @@ async function checkApiStatus() {
     }
 }
 
+// ========== Toast Notification System ==========
+
+function showToast(message, type = 'info', duration = 4000) {
+    const container = document.getElementById('toast-container');
+    if (!container) { console.warn(message); return; }
+
+    const icons = { success: '\u2713', error: '\u2715', info: '\u2139', warning: '\u26a0' };
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.innerHTML = `
+        <span class="toast-icon">${icons[type] || icons.info}</span>
+        <span class="toast-message">${message}</span>
+        <button class="toast-close" onclick="this.closest('.toast').remove()">\u00d7</button>
+    `;
+    container.appendChild(toast);
+
+    const timer = setTimeout(() => {
+        toast.classList.add('dismissing');
+        setTimeout(() => toast.remove(), 300);
+    }, duration);
+
+    toast.querySelector('.toast-close').addEventListener('click', () => clearTimeout(timer));
+}
+
+// ========== Animated Counter ==========
+
+function animateCounter(element, target, duration = 600) {
+    if (!element || target === 0) { if (element) element.textContent = target; return; }
+    const start = 0;
+    const startTime = performance.now();
+    function update(now) {
+        const elapsed = now - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const ease = 1 - Math.pow(1 - progress, 3);
+        element.textContent = Math.round(start + (target - start) * ease);
+        if (progress < 1) requestAnimationFrame(update);
+    }
+    requestAnimationFrame(update);
+}
+
+// ========== Donut Chart ==========
+
+function renderDonutChart(severity) {
+    const chart = document.getElementById('donut-chart');
+    const legend = document.getElementById('chart-legend');
+    const totalEl = document.getElementById('donut-total');
+    if (!chart || !legend) return;
+
+    const c = severity.critical || 0;
+    const h = severity.high || 0;
+    const m = severity.medium || 0;
+    const l = severity.low || 0;
+    const total = c + h + m + l;
+
+    if (total === 0) {
+        chart.style.background = 'var(--bg-tertiary)';
+        totalEl.textContent = '0';
+        legend.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem;">No findings yet</span>';
+        return;
+    }
+
+    animateCounter(totalEl, total);
+
+    const slices = [];
+    let angle = 0;
+    const addSlice = (val, color) => {
+        if (val === 0) return;
+        const deg = (val / total) * 360;
+        slices.push(`${color} ${angle}deg ${angle + deg}deg`);
+        angle += deg;
+    };
+    addSlice(c, '#ff4757');
+    addSlice(h, '#ff6b6b');
+    addSlice(m, '#ffd43b');
+    addSlice(l, '#51cf66');
+
+    chart.style.background = `conic-gradient(${slices.join(', ')})`;
+
+    legend.innerHTML = [
+        { label: 'Critical', cls: 'critical', val: c },
+        { label: 'High', cls: 'high', val: h },
+        { label: 'Medium', cls: 'medium', val: m },
+        { label: 'Low', cls: 'low', val: l }
+    ].map(i => `
+        <div class="legend-item">
+            <span class="legend-dot ${i.cls}"></span>
+            <span>${i.label}</span>
+            <span class="legend-count">${i.val}</span>
+        </div>
+    `).join('');
+}
+
+// ========== Scan Filter ==========
+
+function filterScans() {
+    const query = (document.getElementById('scan-search')?.value || '').toLowerCase().trim();
+    const tbody = document.getElementById('scans-table-body');
+    if (!tbody || !allScans.length) return;
+
+    const filtered = query
+        ? allScans.filter(s =>
+            s.id.toLowerCase().includes(query) ||
+            s.target.toLowerCase().includes(query) ||
+            s.status.toLowerCase().includes(query) ||
+            s.phase.toLowerCase().includes(query)
+        )
+        : allScans;
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No scans match your search.</td></tr>';
+        return;
+    }
+    renderScanRows(tbody, filtered);
+}
+
+function renderScanRows(tbody, scans) {
+    tbody.innerHTML = scans.map(scan => `
+        <tr>
+            <td><code>${scan.id}</code></td>
+            <td>${truncate(scan.target, 40)}</td>
+            <td><span class="status-${scan.status}">${scan.status}</span></td>
+            <td>${scan.phase}</td>
+            <td>${formatDate(scan.created_at)}</td>
+            <td>
+                <button class="btn btn-sm" onclick="viewScan('${scan.id}')">View</button>
+                ${scan.status === 'paused' ?
+            `<button class="btn btn-sm btn-secondary" onclick="resumeScan('${scan.id}')">Resume</button>` : ''
+        }
+                <button class="btn btn-sm btn-secondary" title="Export" onclick="exportScan('${scan.id}')" style="padding: 4px 8px;">\u2b07</button>
+                <button class="btn btn-sm" title="Delete" onclick="deleteScan('${scan.id}')" style="padding: 4px 8px; color: var(--severity-critical); border-color: var(--severity-critical);">\u2715</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
 // ========== Dashboard ==========
 
 async function loadDashboard() {
+    const tbody = document.getElementById('scans-table-body');
+
+    // Show skeleton loading
+    tbody.innerHTML = Array(4).fill('').map(() => `
+        <tr>
+            <td><div class="skeleton skeleton-cell" style="width:60px"></div></td>
+            <td><div class="skeleton skeleton-cell" style="width:80%"></div></td>
+            <td><div class="skeleton skeleton-cell" style="width:50px"></div></td>
+            <td><div class="skeleton skeleton-cell" style="width:60px"></div></td>
+            <td><div class="skeleton skeleton-cell" style="width:70px"></div></td>
+            <td><div class="skeleton skeleton-cell" style="width:100px"></div></td>
+        </tr>
+    `).join('');
+
     try {
         // Fetch real stats from dashboard API
         try {
             const stats = await apiRequest('/dashboard/stats');
-            document.getElementById('stat-total-scans').textContent = stats.total_scans || 0;
-            document.getElementById('stat-critical').textContent = stats.severity_breakdown?.critical || 0;
-            document.getElementById('stat-high').textContent = stats.severity_breakdown?.high || 0;
-            document.getElementById('stat-medium').textContent = stats.severity_breakdown?.medium || 0;
+            const sev = stats.findings_by_severity || stats.severity_breakdown || {};
+            animateCounter(document.getElementById('stat-total-scans'), stats.total_scans || 0);
+            animateCounter(document.getElementById('stat-critical'), sev.critical || 0);
+            animateCounter(document.getElementById('stat-high'), sev.high || 0);
+            animateCounter(document.getElementById('stat-medium'), sev.medium || 0);
+            renderDonutChart(sev);
         } catch (e) {
             console.warn('Dashboard stats unavailable:', e);
         }
 
         const { scans } = await apiRequest('/scans?limit=10');
-
-        const tbody = document.getElementById('scans-table-body');
+        allScans = scans;
 
         if (scans.length === 0) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="6" class="empty-state">No scans yet. Start your first scan!</td>
+                    <td colspan="6">
+                        <div class="empty-state-enhanced">
+                            <div class="empty-state-icon">🔍</div>
+                            <h4>No scans yet</h4>
+                            <p>Launch your first vulnerability assessment to see results here.</p>
+                            <button class="btn btn-primary btn-sm" onclick="showPage('new-scan')">+ Start First Scan</button>
+                        </div>
+                    </td>
                 </tr>
             `;
             return;
         }
 
-        tbody.innerHTML = scans.map(scan => `
-            <tr>
-                <td><code>${scan.id}</code></td>
-                <td>${truncate(scan.target, 40)}</td>
-                <td><span class="status-${scan.status}">${scan.status}</span></td>
-                <td>${scan.phase}</td>
-                <td>${formatDate(scan.created_at)}</td>
-                <td>
-                    <button class="btn btn-sm" onclick="viewScan('${scan.id}')">View</button>
-                    ${scan.status === 'paused' ?
-                `<button class="btn btn-sm btn-secondary" onclick="resumeScan('${scan.id}')">Resume</button>` : ''
-            }
-                    <button class="btn btn-sm btn-secondary" title="Export" onclick="exportScan('${scan.id}')" style="padding: 4px 8px;">⬇</button>
-                    <button class="btn btn-sm" title="Delete" onclick="deleteScan('${scan.id}')" style="padding: 4px 8px; color: var(--severity-critical); border-color: var(--severity-critical);">✕</button>
-                </td>
-            </tr>
-        `).join('');
+        renderScanRows(tbody, scans);
 
     } catch (error) {
         console.error('Failed to load dashboard:', error);
@@ -260,7 +401,7 @@ async function startScan() {
     const wordlist = document.getElementById('wordlist-input').value.trim();
 
     if (!target) {
-        alert('Please enter a target URL or IP address');
+        showToast('Please enter a target URL or IP address', 'warning');
         return;
     }
 
@@ -291,7 +432,7 @@ async function startScan() {
 
     } catch (error) {
         hideLoading();
-        alert('Failed to start scan: ' + error.message);
+        showToast('Failed to start scan: ' + error.message, 'error');
     }
 }
 
@@ -521,7 +662,7 @@ function updateSelectionCount() {
 
 async function executeChecks() {
     if (selectedChecks.size === 0) {
-        alert('Please select at least one check to execute');
+        showToast('Please select at least one check to execute', 'warning');
         return;
     }
 
@@ -696,7 +837,7 @@ async function downloadReport() {
         window.open(`${API_BASE}/reports/${currentScanId}/download?format=html`, '_blank');
 
     } catch (error) {
-        alert('Failed to generate report: ' + error.message);
+        showToast('Failed to generate report: ' + error.message, 'error');
     }
 }
 
@@ -760,7 +901,7 @@ async function downloadReportId(scanId) {
         });
         window.open(`${API_BASE}/reports/${scanId}/download?format=html`, '_blank');
     } catch (error) {
-        alert('Failed to generate report');
+        showToast('Failed to generate report', 'error');
     }
 }
 
@@ -771,7 +912,7 @@ async function deleteReport(scanId) {
         await apiRequest(`/reports/${scanId}`, { method: 'DELETE' });
         loadReports(); // Reload list
     } catch (error) {
-        alert('Failed to delete report: ' + error.message);
+        showToast('Failed to delete report: ' + error.message, 'error');
     }
 }
 
@@ -931,7 +1072,7 @@ async function launchPresetSimulation(presetId) {
         runSimulationStep(0);
     } catch (error) {
         hideLoading();
-        alert(`Failed to load ${meta.label} simulation: ` + error.message);
+        showToast(`Failed to load ${meta.label} simulation: ` + error.message, 'error');
     }
 }
 
@@ -1166,11 +1307,21 @@ function truncate(str, len) {
 }
 
 function formatDate(dateStr) {
-    return new Date(dateStr).toLocaleDateString('en-US', {
+    if (!dateStr) return '—';
+    // Backend sends UTC isoformat without 'Z' — append it so JS treats as UTC
+    let s = String(dateStr);
+    if (!s.endsWith('Z') && !s.includes('+') && !s.includes('-', 10)) {
+        s += 'Z';
+    }
+    const d = new Date(s);
+    if (isNaN(d)) return dateStr; // fallback if unparseable
+    return d.toLocaleString('en-IN', {
+        day: '2-digit',
         month: 'short',
-        day: 'numeric',
+        year: 'numeric',
         hour: '2-digit',
-        minute: '2-digit'
+        minute: '2-digit',
+        hour12: true
     });
 }
 
@@ -1231,7 +1382,7 @@ async function viewScan(scanId) {
         }
     } catch (error) {
         hideLoading();
-        alert('Failed to load scan: ' + error.message);
+        showToast('Failed to load scan: ' + error.message, 'error');
     }
 }
 
@@ -1240,7 +1391,7 @@ async function resumeScan(scanId) {
         await apiRequest(`/scans/${scanId}/resume`, { method: 'POST' });
         loadDashboard();
     } catch (error) {
-        alert('Failed to resume scan: ' + error.message);
+        showToast('Failed to resume scan: ' + error.message, 'error');
     }
 }
 
@@ -1337,8 +1488,19 @@ function updateUserProfile(user) {
  */
 function toggleUserMenu() {
     const userProfile = document.getElementById('user-profile');
-    if (userProfile) {
-        userProfile.classList.toggle('open');
+    if (!userProfile) return;
+    const isOpen = userProfile.classList.toggle('open');
+    if (isOpen) {
+        // Close when clicking anywhere outside
+        setTimeout(() => {
+            function closeOnOutsideClick(e) {
+                if (!userProfile.contains(e.target)) {
+                    userProfile.classList.remove('open');
+                    document.removeEventListener('click', closeOnOutsideClick, true);
+                }
+            }
+            document.addEventListener('click', closeOnOutsideClick, true);
+        }, 0);
     }
 }
 
@@ -1428,9 +1590,10 @@ async function deleteScan(scanId) {
     if (!confirm(`Delete scan ${scanId} and all associated data? This cannot be undone.`)) return;
     try {
         await apiRequest(`/scans/${scanId}`, { method: 'DELETE' });
+        showToast('Scan deleted successfully', 'success');
         loadDashboard();
     } catch (error) {
-        alert('Failed to delete scan: ' + error.message);
+        showToast('Failed to delete scan: ' + error.message, 'error');
     }
 }
 
@@ -1445,7 +1608,7 @@ async function exportScan(scanId) {
         a.click();
         URL.revokeObjectURL(url);
     } catch (error) {
-        alert('Failed to export scan: ' + error.message);
+        showToast('Failed to export scan: ' + error.message, 'error');
     }
 }
 
@@ -1455,7 +1618,7 @@ async function cancelScan(scanId) {
         await apiRequest(`/scans/${scanId}/cancel`, { method: 'POST' });
         loadDashboard();
     } catch (error) {
-        alert('Failed to cancel scan: ' + error.message);
+        showToast('Failed to cancel scan: ' + error.message, 'error');
     }
 }
 
@@ -1463,31 +1626,42 @@ async function cancelScan(scanId) {
 
 async function loadActivityFeed() {
     const container = document.getElementById('activity-feed');
+    // Skeleton loading
+    container.innerHTML = Array(5).fill('').map(() => `
+        <div class="activity-item">
+            <div class="skeleton" style="width:10px;height:10px;border-radius:50%;margin-top:5px;"></div>
+            <div class="activity-content">
+                <div class="skeleton skeleton-line w-75"></div>
+                <div class="skeleton skeleton-line w-30" style="margin-top:6px;"></div>
+            </div>
+        </div>
+    `).join('');
+
     try {
         const data = await apiRequest('/activity?limit=50');
         const events = data.events || [];
 
         if (events.length === 0) {
-            container.innerHTML = '<p class="empty-state">No activity recorded yet.</p>';
+            container.innerHTML = `
+                <div class="empty-state-enhanced">
+                    <div class="empty-state-icon">📋</div>
+                    <h4>No activity yet</h4>
+                    <p>Events will appear here as you run scans.</p>
+                </div>
+            `;
             return;
         }
 
-        container.innerHTML = events.map(ev => {
-            const typeColors = {
-                scan_created: '#00ff88',
-                scan_completed: '#00d4ff',
-                scan_cancelled: '#ff6b6b',
-                finding_discovered: '#ffd43b',
-                error: '#ff4757'
-            };
-            const color = typeColors[ev.event_type] || '#64748b';
+        container.innerHTML = events.map((ev, idx) => {
+            const dotClass = ['scan_created', 'scan_completed', 'scan_cancelled', 'finding_discovered', 'error'].includes(ev.event_type)
+                ? ev.event_type : 'default';
             return `
-                <div class="activity-item" style="display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1px solid #1e293b;">
-                    <div style="width: 8px; height: 8px; border-radius: 50%; background: ${color}; margin-top: 6px; flex-shrink: 0;"></div>
-                    <div style="flex: 1; min-width: 0;">
-                        <div style="color: #e2e8f0; font-size: 0.9rem;">${escapeHtml(ev.message)}</div>
-                        <div style="color: #64748b; font-size: 0.75rem; margin-top: 2px;">
-                            ${ev.scan_id ? `<code style="color: #00d4ff;">${ev.scan_id}</code> · ` : ''}
+                <div class="activity-item" style="animation-delay: ${idx * 0.04}s;">
+                    <div class="activity-dot ${dotClass}"></div>
+                    <div class="activity-content">
+                        <div class="activity-message">${escapeHtml(ev.message)}</div>
+                        <div class="activity-meta">
+                            ${ev.scan_id ? `<code>${ev.scan_id}</code> · ` : ''}
                             ${formatDate(ev.timestamp)}
                         </div>
                     </div>
@@ -1510,7 +1684,17 @@ async function loadSchedules() {
         const schedules = data.schedules || [];
 
         if (schedules.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No scheduled scans. Create one above.</td></tr>';
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="6">
+                        <div class="empty-state-enhanced">
+                            <div class="empty-state-icon">⏰</div>
+                            <h4>No scheduled scans</h4>
+                            <p>Create a recurring scan using the form above.</p>
+                        </div>
+                    </td>
+                </tr>
+            `;
             return;
         }
 
@@ -1546,7 +1730,7 @@ async function createScheduledScan() {
     const cron = document.getElementById('schedule-cron').value;
 
     if (!target) {
-        alert('Please enter a target URL');
+        showToast('Please enter a target URL', 'warning');
         return;
     }
 
@@ -1555,10 +1739,11 @@ async function createScheduledScan() {
             method: 'POST',
             body: JSON.stringify({ target, cron_expr: cron })
         });
+        showToast('Schedule created successfully', 'success');
         document.getElementById('schedule-target').value = '';
         loadSchedules();
     } catch (error) {
-        alert('Failed to create schedule: ' + error.message);
+        showToast('Failed to create schedule: ' + error.message, 'error');
     }
 }
 
@@ -1569,7 +1754,7 @@ async function toggleSchedule(scheduleId, enabled) {
             body: JSON.stringify({ enabled })
         });
     } catch (error) {
-        alert('Failed to update schedule: ' + error.message);
+        showToast('Failed to update schedule: ' + error.message, 'error');
         loadSchedules();
     }
 }
@@ -1578,9 +1763,10 @@ async function deleteSchedule(scheduleId) {
     if (!confirm('Delete this scheduled scan?')) return;
     try {
         await apiRequest(`/scheduler/${scheduleId}`, { method: 'DELETE' });
+        showToast('Schedule deleted', 'success');
         loadSchedules();
     } catch (error) {
-        alert('Failed to delete schedule: ' + error.message);
+        showToast('Failed to delete schedule: ' + error.message, 'error');
     }
 }
 
