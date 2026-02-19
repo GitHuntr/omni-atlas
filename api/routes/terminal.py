@@ -2,7 +2,8 @@
 ATLAS Terminal WebSocket Route
 
 Provides a real shell terminal over WebSocket using PTY.
-Restricted to pentester and admin roles only.
+Every blocking OS call (read/write/wait) runs in a thread executor
+so the asyncio event loop is NEVER blocked.
 """
 
 import os
@@ -48,11 +49,59 @@ async def authenticate_ws(token: str) -> dict | None:
     }
 
 
-def set_winsize(fd: int, rows: int, cols: int):
+def _set_winsize(fd: int, rows: int, cols: int):
     """Set the terminal window size on the PTY."""
     winsize = struct.pack("HHHH", rows, cols, 0, 0)
     fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
 
+
+# ---------------------------------------------------------------------------
+# Blocking helpers — these run ONLY inside run_in_executor
+# ---------------------------------------------------------------------------
+
+def _pty_read_blocking(fd: int) -> bytes | None:
+    """
+    Wait up to 0.5s for data on the PTY master fd, then read it.
+    Returns:
+        bytes  – data read from PTY
+        b""    – EOF / OSError (PTY closed)
+        None   – select timeout, no data yet
+    Runs inside a thread-pool executor; never on the event loop.
+    """
+    try:
+        ready, _, _ = select.select([fd], [], [], 0.5)
+    except (OSError, ValueError):
+        return b""  # fd closed
+
+    if not ready:
+        return None  # timeout
+
+    try:
+        data = os.read(fd, 4096)
+        return data if data else b""  # empty read = EOF
+    except OSError:
+        return b""
+
+
+def _pty_write_blocking(fd: int, data: bytes):
+    """Write data to the PTY master fd.  Runs in executor."""
+    try:
+        os.write(fd, data)
+    except OSError:
+        pass
+
+
+def _wait_process(process, timeout=2):
+    """Wait for process to exit. Runs in executor."""
+    try:
+        process.wait(timeout=timeout)
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# WebSocket endpoint
+# ---------------------------------------------------------------------------
 
 @router.websocket("/ws")
 async def terminal_ws(websocket: WebSocket, token: str = Query(...)):
@@ -69,19 +118,24 @@ async def terminal_ws(websocket: WebSocket, token: str = Query(...)):
     Messages TO client:
         - Plain text: stdout/stderr data from the shell
     """
-    # Authenticate
+    await websocket.accept()
+
+    # -- Authenticate --
     user = await authenticate_ws(token)
     if not user:
+        await websocket.send_text(
+            "\r\n\x1b[31m[ACCESS DENIED] Terminal requires a valid "
+            "session with pentester or admin role.\x1b[0m\r\n"
+        )
         await websocket.close(code=4003, reason="Unauthorized")
         return
 
-    await websocket.accept()
     logger.info(f"Terminal session opened for {user['username']} ({user['role']})")
 
-    # Create PTY
+    # -- Create PTY pair --
     master_fd, slave_fd = pty.openpty()
 
-    # Spawn bash shell
+    # -- Spawn bash --
     env = os.environ.copy()
     env["TERM"] = "xterm-256color"
     env["SHELL"] = "/bin/bash"
@@ -98,79 +152,109 @@ async def terminal_ws(websocket: WebSocket, token: str = Query(...)):
         cwd=os.path.expanduser("~"),
     )
 
-    # Close slave in parent — child owns it now
+    # Close slave in parent — child owns it
     os.close(slave_fd)
 
-    # Set default size
-    set_winsize(master_fd, 24, 80)
+    # Set default terminal size
+    _set_winsize(master_fd, 24, 80)
 
+    loop = asyncio.get_event_loop()
+    closed = asyncio.Event()  # signals both tasks to stop
+
+    # ------------------------------------------------------------------
     async def read_pty():
-        """Read PTY output and send to WebSocket."""
-        loop = asyncio.get_event_loop()
+        """Continuously read PTY output → send to WebSocket."""
         try:
-            while True:
-                # Wait for data on master_fd
-                await loop.run_in_executor(
-                    None, lambda: select.select([master_fd], [], [], 0.1)
+            while not closed.is_set():
+                data = await loop.run_in_executor(
+                    None, _pty_read_blocking, master_fd
                 )
-                try:
-                    data = os.read(master_fd, 4096)
-                    if not data:
-                        break
-                    await websocket.send_text(data.decode("utf-8", errors="replace"))
-                except OSError:
+                if data is None:
+                    # select timeout — just loop again
+                    continue
+                if not data:
+                    # EOF or error — shell exited
                     break
+                try:
+                    await websocket.send_text(
+                        data.decode("utf-8", errors="replace")
+                    )
+                except Exception:
+                    break
+        except asyncio.CancelledError:
+            pass
         except Exception as e:
             logger.debug(f"PTY read ended: {e}")
+        finally:
+            closed.set()
 
+    # ------------------------------------------------------------------
     async def write_pty():
-        """Read WebSocket messages and write to PTY."""
+        """Receive WebSocket messages → write to PTY stdin."""
         try:
-            while True:
+            while not closed.is_set():
                 message = await websocket.receive_text()
 
-                # Check for JSON control messages
+                # JSON control messages (resize)
                 if message.startswith("{"):
                     try:
                         msg = json.loads(message)
                         if msg.get("type") == "resize":
                             cols = msg.get("cols", 80)
                             rows = msg.get("rows", 24)
-                            set_winsize(master_fd, rows, cols)
+                            _set_winsize(master_fd, rows, cols)
                             continue
                     except json.JSONDecodeError:
                         pass
 
-                # Regular stdin data
-                os.write(master_fd, message.encode("utf-8"))
+                # Regular stdin — write in executor to avoid blocking
+                await loop.run_in_executor(
+                    None, _pty_write_blocking, master_fd,
+                    message.encode("utf-8")
+                )
         except WebSocketDisconnect:
-            logger.info(f"Terminal disconnected for {user['username']}")
+            logger.info(f"Terminal WS disconnected for {user['username']}")
+        except asyncio.CancelledError:
+            pass
         except Exception as e:
             logger.debug(f"PTY write ended: {e}")
+        finally:
+            closed.set()
 
-    # Run both tasks concurrently
+    # ------------------------------------------------------------------
+    # Run both tasks; clean up when either finishes
+    # ------------------------------------------------------------------
     read_task = asyncio.create_task(read_pty())
     write_task = asyncio.create_task(write_pty())
 
     try:
-        # Wait for either task to complete (disconnect or process exit)
         done, pending = await asyncio.wait(
-            [read_task, write_task], return_when=asyncio.FIRST_COMPLETED
+            [read_task, write_task],
+            return_when=asyncio.FIRST_COMPLETED,
         )
         for task in pending:
             task.cancel()
-    finally:
-        # Cleanup: kill the shell process
-        try:
-            os.kill(process.pid, signal.SIGTERM)
-            process.wait(timeout=2)
-        except Exception:
             try:
-                os.kill(process.pid, signal.SIGKILL)
-                process.wait(timeout=1)
-            except Exception:
+                await task
+            except (asyncio.CancelledError, Exception):
                 pass
+    finally:
+        # -- Kill the shell process (non-blocking) --
+        try:
+            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+        except (OSError, ProcessLookupError):
+            pass
 
+        await loop.run_in_executor(None, _wait_process, process, 2)
+
+        if process.poll() is None:
+            try:
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            except (OSError, ProcessLookupError):
+                pass
+            await loop.run_in_executor(None, _wait_process, process, 1)
+
+        # -- Close master fd --
         try:
             os.close(master_fd)
         except OSError:

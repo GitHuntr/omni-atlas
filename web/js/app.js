@@ -1870,12 +1870,26 @@ const WebTerminal = {
     _reconnectAttempts: 0,
     _maxReconnectAttempts: 5,
 
+    _initRetries: 0,
+
     init() {
         if (this.initialized && this.term) {
             // Already initialized — just re-fit
             setTimeout(() => this.fit(), 100);
             return;
         }
+
+        // Guard: xterm.js may not be loaded yet (deferred scripts)
+        if (typeof Terminal === 'undefined' || typeof FitAddon === 'undefined') {
+            if (this._initRetries < 10) {
+                this._initRetries++;
+                setTimeout(() => this.init(), 200);
+            } else {
+                console.error('xterm.js failed to load');
+            }
+            return;
+        }
+        this._initRetries = 0;
 
         const container = document.getElementById('xterm-container');
         if (!container) return;
