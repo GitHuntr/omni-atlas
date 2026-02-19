@@ -172,34 +172,29 @@ async def test_403_page():
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    """Serve main Web UI"""
+    """Serve landing page"""
+    landing_path = web_dir / "landing.html"
+    if landing_path.exists():
+        return HTMLResponse(content=landing_path.read_text(encoding='utf-8'))
+    return HTMLResponse(content="<h1>Landing page not found</h1>", status_code=404)
+
+
+@app.get("/landing", response_class=HTMLResponse)
+async def landing_alias():
+    """Alias for landing page"""
+    landing_path = web_dir / "landing.html"
+    if landing_path.exists():
+        return HTMLResponse(content=landing_path.read_text(encoding='utf-8'))
+    return HTMLResponse(content="<h1>Landing page not found</h1>", status_code=404)
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page():
+    """Serve main dashboard Web UI"""
     index_path = web_dir / "index.html"
     if index_path.exists():
         return HTMLResponse(content=index_path.read_text(encoding='utf-8'))
-    
-    return HTMLResponse(content="""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>ATLAS</title>
-        <style>
-            body { font-family: system-ui; background: #1a1a2e; color: #eee; 
-                   display: flex; justify-content: center; align-items: center; 
-                   min-height: 100vh; margin: 0; }
-            .container { text-align: center; }
-            h1 { color: #4fc3f7; font-size: 3rem; }
-            a { color: #4fc3f7; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1> ATLAS</h1>
-            <p> Advanced Testing Lab for Application Security </p>
-            <p><a href="/api/docs">API Documentation</a></p>
-        </div>
-    </body>
-    </html>
-    """)
+    return HTMLResponse(content="<h1>Dashboard not found</h1>", status_code=404)
 
 
 @app.get("/api/health")
