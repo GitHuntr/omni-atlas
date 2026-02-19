@@ -161,9 +161,19 @@ async def run_reconnaissance(scan_id: str):
     async def _run_recon():
         try:
             await engine.run_reconnaissance()
+            try:
+                db = get_db()
+                db.add_scan_event(scan_id, "recon_completed", "Reconnaissance completed successfully")
+            except Exception:
+                pass
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"Background recon failed: {e}")
+            try:
+                db = get_db()
+                db.add_scan_event(scan_id, "recon_failed", f"Reconnaissance failed: {e}")
+            except Exception:
+                pass
         finally:
             _running_tasks.pop(task_key, None)
     
@@ -185,6 +195,13 @@ async def select_checks(scan_id: str, selection: CheckSelection):
             raise HTTPException(status_code=404, detail="Scan not found")
     
     engine.select_checks(selection.check_ids)
+    
+    # Log activity event
+    try:
+        db = get_db()
+        db.add_scan_event(scan_id, "checks_selected", f"{len(selection.check_ids)} checks selected for execution")
+    except Exception:
+        pass
     
     return SuccessResponse(
         message=f"Selected {len(selection.check_ids)} checks for execution"
@@ -219,9 +236,20 @@ async def execute_checks(scan_id: str, background_tasks: BackgroundTasks):
             # Store findings in state for later retrieval
             if hasattr(engine, '_last_findings'):
                 engine._last_findings = findings
+            try:
+                db = get_db()
+                count = len(findings) if findings else 0
+                db.add_scan_event(scan_id, "execution_completed", f"Execution completed with {count} findings")
+            except Exception:
+                pass
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"Background execution failed: {e}")
+            try:
+                db = get_db()
+                db.add_scan_event(scan_id, "execution_failed", f"Execution failed: {e}")
+            except Exception:
+                pass
         finally:
             _running_tasks.pop(task_key, None)
     

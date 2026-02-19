@@ -456,13 +456,13 @@ async function runReconnaissance() {
             headers: { 'Content-Type': 'application/json' }
         }).catch(() => { });
 
-        // Poll scan status until recon completes (30s timeout)
+        // Poll scan status until recon completes (120s timeout)
         const results = await pollScanPhase('SELECTION', statusText, [
             'Scanning ports and services...',
             'Enumerating service versions...',
             'Fingerprinting target...',
             'Analyzing discovered services...'
-        ], 15); // 15 attempts × 2s = 30s timeout
+        ], 90); // 90 attempts × 2s = 180s timeout
 
         clearInterval(progressInterval);
         progressFill.style.width = '100%';
@@ -488,7 +488,16 @@ async function runReconnaissance() {
     } catch (error) {
         clearInterval(progressInterval);
 
-        if (error.message.includes('timed out')) {
+        if (error.message.includes('scan_error')) {
+            // Backend reported an actual error during recon
+            progressFill.style.width = '100%';
+            progressFill.style.background = 'var(--severity-critical, #ff4757)';
+            statusText.innerHTML = `
+                <span style="color: var(--severity-critical, #ff4757)">✕ Reconnaissance failed</span>
+                <br><small style="opacity:0.7">The scan encountered an error. The target may be unreachable or invalid.</small>
+                <br><button class="btn btn-sm" style="margin-top:8px" onclick="skipToCheckSelection()">Skip → Select Checks Manually</button>
+            `;
+        } else if (error.message.includes('timed out')) {
             progressFill.style.width = '100%';
             progressFill.style.background = 'var(--severity-medium, #f39c12)';
             statusText.innerHTML = `
@@ -526,10 +535,13 @@ async function pollScanPhase(targetPhase, statusEl, messages, maxAttempts = 15) 
         await new Promise(r => setTimeout(r, 2000));
         attempt++;
 
-        // Cycle status messages
+        // Show elapsed time alongside status messages
+        const elapsed = attempt * 2;
         if (messages && messages.length > 0 && attempt % 3 === 0) {
             msgIdx = (msgIdx + 1) % messages.length;
-            if (statusEl) statusEl.textContent = messages[msgIdx];
+        }
+        if (statusEl && messages && messages.length > 0) {
+            statusEl.textContent = `${messages[msgIdx]} (${elapsed}s)`;
         }
 
         try {
@@ -539,10 +551,17 @@ async function pollScanPhase(targetPhase, statusEl, messages, maxAttempts = 15) 
             const currentIdx = phaseOrder.indexOf(progress.phase);
             const targetIdx = phaseOrder.indexOf(targetPhase);
 
-            if (currentIdx >= targetIdx || progress.phase === 'ERROR') {
+            if (progress.phase === 'ERROR') {
+                throw new Error('scan_error — reconnaissance failed on the backend');
+            }
+
+            if (currentIdx >= targetIdx) {
                 return progress;
             }
         } catch (e) {
+            if (e.message.includes('scan_error')) {
+                throw e; // Re-throw scan errors
+            }
             console.debug('Poll attempt failed, retrying...', e);
         }
     }
