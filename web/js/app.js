@@ -127,12 +127,14 @@ function showPage(pageName) {
         loadActivityFeed();
     } else if (pageName === 'scheduling') {
         loadSchedules();
+    } else if (pageName === 'terminal') {
+        initWebTerminal();
     }
     // Update header breadcrumb
     const pageLabels = {
         dashboard: 'Dashboard', 'new-scan': 'New Scan', checks: 'Vulnerability Checks',
         demo: 'Demo Targets', reports: 'Reports', activity: 'Activity Log',
-        scheduling: 'Scheduled Scans', profile: 'Profile', settings: 'Settings'
+        scheduling: 'Scheduled Scans', terminal: 'Terminal', profile: 'Profile', settings: 'Settings'
     };
     const bc = document.getElementById('header-breadcrumb');
     if (bc) bc.textContent = pageLabels[pageName] || pageName;
@@ -1857,3 +1859,240 @@ async function changeUserPassword() {
         msgEl.innerHTML = `<span style="color: #ff6b6b;">Error: ${error.message}</span>`;
     }
 }
+// ========== Real Web Terminal (xterm.js + WebSocket) ==========
+
+const WebTerminal = {
+    term: null,
+    fitAddon: null,
+    ws: null,
+    initialized: false,
+    _sessionTimer: null,
+    _reconnectAttempts: 0,
+    _maxReconnectAttempts: 5,
+
+    init() {
+        if (this.initialized && this.term) {
+            // Already initialized — just re-fit
+            setTimeout(() => this.fit(), 100);
+            return;
+        }
+
+        const container = document.getElementById('xterm-container');
+        if (!container) return;
+
+        // Clear any previous content
+        container.innerHTML = '';
+
+        // Create xterm.js instance
+        this.term = new Terminal({
+            cursorBlink: true,
+            cursorStyle: 'bar',
+            fontSize: 14,
+            fontFamily: '"Fira Code", "Cascadia Code", "JetBrains Mono", monospace',
+            theme: {
+                background: '#000000',
+                foreground: '#a0aec0',
+                cursor: '#00ff88',
+                cursorAccent: '#000000',
+                selectionBackground: 'rgba(0, 255, 136, 0.2)',
+                selectionForeground: '#ffffff',
+                black: '#0a0e1a',
+                red: '#ff4757',
+                green: '#00ff88',
+                yellow: '#ffd43b',
+                blue: '#00d4ff',
+                magenta: '#b794f6',
+                cyan: '#00d4ff',
+                white: '#e2e8f0',
+                brightBlack: '#4a5568',
+                brightRed: '#ff6b81',
+                brightGreen: '#2ed573',
+                brightYellow: '#fffa65',
+                brightBlue: '#70a1ff',
+                brightMagenta: '#d6a4ff',
+                brightCyan: '#7bed9f',
+                brightWhite: '#ffffff',
+            },
+            allowProposedApi: true,
+            scrollback: 5000,
+            convertEol: true,
+        });
+
+        // Load addons
+        this.fitAddon = new FitAddon.FitAddon();
+        this.term.loadAddon(this.fitAddon);
+
+        if (typeof WebLinksAddon !== 'undefined') {
+            this.term.loadAddon(new WebLinksAddon.WebLinksAddon());
+        }
+
+        // Open terminal in container
+        this.term.open(container);
+
+        // Fit to container
+        setTimeout(() => this.fit(), 50);
+
+        // Handle user input — send to WebSocket
+        this.term.onData((data) => {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.send(data);
+            }
+        });
+
+        // Handle resize
+        this.term.onResize(({ cols, rows }) => {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+            }
+        });
+
+        // Watch for container resize
+        const resizeObserver = new ResizeObserver(() => this.fit());
+        resizeObserver.observe(container);
+
+        // Connect WebSocket
+        this.connect();
+
+        this.initialized = true;
+    },
+
+    fit() {
+        if (this.fitAddon && this.term) {
+            try {
+                this.fitAddon.fit();
+            } catch (e) {
+                // Ignore fit errors during transitions
+            }
+        }
+    },
+
+    connect() {
+        const token = localStorage.getItem('atlas_token');
+        if (!token) {
+            this.term.writeln('\r\n\x1b[31m[ERROR] Not authenticated. Please log in first.\x1b[0m\r\n');
+            this.updateStatus('ERROR', 'red');
+            return;
+        }
+
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/api/terminal/ws?token=${encodeURIComponent(token)}`;
+
+        this.updateStatus('CONNECTING', 'yellow');
+
+        this.ws = new WebSocket(wsUrl);
+
+        this.ws.onopen = () => {
+            this._reconnectAttempts = 0;
+            this.updateStatus('CONNECTED', 'green');
+
+            // Send initial resize
+            setTimeout(() => {
+                this.fit();
+                if (this.term) {
+                    this.ws.send(JSON.stringify({
+                        type: 'resize',
+                        cols: this.term.cols,
+                        rows: this.term.rows,
+                    }));
+                }
+            }, 100);
+        };
+
+        this.ws.onmessage = (event) => {
+            if (this.term) {
+                this.term.write(event.data);
+            }
+        };
+
+        this.ws.onclose = (event) => {
+            if (event.code === 4003) {
+                this.term.writeln('\r\n\x1b[31m[ACCESS DENIED] Terminal requires pentester or admin role.\x1b[0m\r\n');
+                this.updateStatus('DENIED', 'red');
+                return;
+            }
+
+            this.updateStatus('DISCONNECTED', 'red');
+
+            // Auto-reconnect with backoff
+            if (this._reconnectAttempts < this._maxReconnectAttempts) {
+                this._reconnectAttempts++;
+                const delay = Math.min(1000 * Math.pow(2, this._reconnectAttempts), 10000);
+                this.term.writeln(`\r\n\x1b[33m[DISCONNECTED] Reconnecting in ${delay / 1000}s... (attempt ${this._reconnectAttempts}/${this._maxReconnectAttempts})\x1b[0m`);
+                setTimeout(() => this.connect(), delay);
+            } else {
+                this.term.writeln('\r\n\x1b[31m[DISCONNECTED] Max reconnect attempts reached. Refresh the page.\x1b[0m\r\n');
+            }
+        };
+
+        this.ws.onerror = () => {
+            this.updateStatus('ERROR', 'red');
+        };
+    },
+
+    updateStatus(text, color) {
+        const el = document.getElementById('ws-status');
+        if (el) {
+            el.textContent = text;
+            // Update the indicator dot color
+            el.style.setProperty('--status-color', color === 'green' ? '#00ff88' : color === 'yellow' ? '#ffd43b' : '#ff4757');
+        }
+    },
+
+    clear() {
+        if (this.term) {
+            this.term.clear();
+        }
+    },
+
+    destroy() {
+        if (this.ws) {
+            this.ws.close();
+            this.ws = null;
+        }
+        if (this._sessionTimer) {
+            clearInterval(this._sessionTimer);
+            this._sessionTimer = null;
+        }
+        // Don't dispose term — keep it alive for re-navigation
+    }
+};
+
+function initWebTerminal() {
+    WebTerminal.init();
+
+    // Update title with actual username
+    const titleEl = document.getElementById('web-term-title');
+    if (currentUser && titleEl) {
+        const user = currentUser.username || 'pentester';
+        titleEl.textContent = `${user}@atlas ~ bash`;
+    }
+
+    // Session timer
+    if (!WebTerminal._sessionTimer) {
+        const startTime = Date.now();
+        WebTerminal._sessionTimer = setInterval(() => {
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const mins = Math.floor(elapsed / 60);
+            const secs = String(elapsed % 60).padStart(2, '0');
+            const el = document.getElementById('web-term-session-time');
+            if (el) el.textContent = `SESSION: ${mins}:${secs}`;
+        }, 1000);
+    }
+
+    // Focus the terminal
+    setTimeout(() => WebTerminal.term?.focus(), 200);
+}
+
+function webTermClear() {
+    WebTerminal.clear();
+}
+
+function webTermFullscreen() {
+    const wrapper = document.getElementById('web-terminal-wrapper');
+    if (wrapper) {
+        wrapper.classList.toggle('fullscreen');
+        // Re-fit after transition
+        setTimeout(() => WebTerminal.fit(), 300);
+    }
+}
+

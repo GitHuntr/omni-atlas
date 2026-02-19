@@ -3671,3 +3671,234 @@ input:checked+.slider:before {
 .stat-card:hover .stat-value {
     text-shadow: 0 0 20px currentColor;
 }
+
+/* ===== Web Terminal Page ===== */
+.web-terminal-container {
+    height: calc(100vh - 120px);
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+}
+
+.web-terminal {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #000000;
+    border: 1px solid rgba(0, 255, 136, 0.3);
+    border-radius: 14px;
+    overflow: hidden;
+    position: relative;
+    box-shadow:
+        0 0 30px rgba(0, 255, 136, 0.08),
+        0 0 60px rgba(0, 255, 136, 0.04),
+        0 8px 32px rgba(0, 0, 0, 0.6),
+        inset 0 1px 0 rgba(0, 255, 136, 0.1);
+    animation: terminalBorderPulse 4s ease-in-out infinite alternate;
+}
+
+@keyframes terminalBorderPulse {
+    0% {
+        border-color: rgba(0, 255, 136, 0.2);
+        box-shadow: 0 0 20px rgba(0, 255, 136, 0.05), 0 8px 32px rgba(0, 0, 0, 0.6);
+    }
+
+    100% {
+        border-color: rgba(0, 255, 136, 0.4);
+        box-shadow: 0 0 40px rgba(0, 255, 136, 0.1), 0 0 80px rgba(0, 212, 255, 0.05), 0 8px 32px rgba(0, 0, 0, 0.6);
+    }
+}
+
+/* CRT scanline overlay effect */
+.web-terminal::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    z-index: 10;
+    background: repeating-linear-gradient(0deg,
+            transparent,
+            transparent 2px,
+            rgba(0, 255, 136, 0.015) 2px,
+            rgba(0, 255, 136, 0.015) 4px);
+}
+
+.web-terminal.fullscreen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    border-radius: 0;
+    margin: 0;
+}
+
+/* ── Terminal Header ── */
+.web-term-header {
+    display: flex;
+    align-items: center;
+    padding: 12px 20px;
+    background: linear-gradient(180deg, #111820 0%, #0a0e17 100%);
+    border-bottom: 1px solid rgba(0, 255, 136, 0.15);
+    gap: 14px;
+    position: relative;
+    z-index: 11;
+}
+
+.web-term-header::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(0, 255, 136, 0.3), rgba(0, 212, 255, 0.3), transparent);
+}
+
+.web-term-dots {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.web-term-dot {
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    transition: all 0.2s;
+    cursor: pointer;
+}
+
+.web-term-dot.red {
+    background: #ff5f56;
+    box-shadow: 0 0 6px rgba(255, 95, 86, 0.4);
+}
+
+.web-term-dot.yellow {
+    background: #ffbd2e;
+    box-shadow: 0 0 6px rgba(255, 189, 46, 0.4);
+}
+
+.web-term-dot.green {
+    background: #27c93f;
+    box-shadow: 0 0 6px rgba(39, 201, 63, 0.4);
+}
+
+.web-term-dot:hover {
+    transform: scale(1.15);
+    filter: brightness(1.3);
+}
+
+.web-term-title {
+    flex: 1;
+    font-family: 'Fira Code', monospace;
+    font-size: 0.78rem;
+    color: #4a5568;
+    text-align: center;
+    letter-spacing: 0.5px;
+}
+
+.web-term-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.web-term-action-btn {
+    background: rgba(0, 255, 136, 0.06);
+    border: 1px solid rgba(0, 255, 136, 0.15);
+    color: #4a5568;
+    padding: 5px 14px;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    font-family: 'Fira Code', monospace;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+}
+
+.web-term-action-btn:hover {
+    background: rgba(0, 255, 136, 0.12);
+    border-color: rgba(0, 255, 136, 0.4);
+    color: #00ff88;
+    box-shadow: 0 0 12px rgba(0, 255, 136, 0.15);
+    transform: translateY(-1px);
+}
+
+/* ── xterm.js Container ── */
+#xterm-container {
+    flex: 1;
+    overflow: hidden;
+    background: #000000;
+    position: relative;
+    z-index: 1;
+    padding: 8px 4px 4px 8px;
+}
+
+#xterm-container .xterm {
+    height: 100%;
+}
+
+#xterm-container .xterm-viewport {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 255, 136, 0.15) transparent;
+}
+
+#xterm-container .xterm-viewport::-webkit-scrollbar {
+    width: 5px;
+}
+
+#xterm-container .xterm-viewport::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+#xterm-container .xterm-viewport::-webkit-scrollbar-thumb {
+    background: rgba(0, 255, 136, 0.15);
+    border-radius: 10px;
+}
+
+#xterm-container .xterm-viewport::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 255, 136, 0.3);
+}
+
+/* ── Terminal Status Bar ── */
+.web-term-statusbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 20px;
+    background: #080c14;
+    border-top: 1px solid rgba(0, 255, 136, 0.08);
+    font-family: 'Fira Code', monospace;
+    font-size: 0.65rem;
+    color: #2d3748;
+    position: relative;
+    z-index: 11;
+}
+
+.web-term-statusbar .status-left,
+.web-term-statusbar .status-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.web-term-statusbar .status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    --status-color: #ffd43b;
+}
+
+.web-term-statusbar .status-indicator::before {
+    content: '';
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--status-color);
+    box-shadow: 0 0 4px color-mix(in srgb, var(--status-color) 50%, transparent);
+}

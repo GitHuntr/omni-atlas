@@ -15,6 +15,12 @@
         rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
+    <!-- xterm.js for real terminal -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
+
     <link rel="stylesheet" href="/static/css/style.css?v=3">
     <link rel="icon" type="image/svg+xml" href="/static/assets/favicon.svg">
 
@@ -343,6 +349,14 @@
                             <polyline points="12 6 12 12 16 14" />
                         </svg>
                         <span>Scheduled Scans</span>
+                    </a>
+                    <a href="#terminal" class="nav-item" data-page="terminal" data-role="pentester,admin">
+                        <svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20" fill="none"
+                            stroke="currentColor" stroke-width="2">
+                            <polyline points="4 17 10 11 4 5" />
+                            <line x1="12" y1="19" x2="20" y2="19" />
+                        </svg>
+                        <span>Terminal</span>
                     </a>
                 </div>
 
@@ -995,6 +1009,39 @@
                                 <button class="btn btn-primary" onclick="changeUserPassword()">Change Password</button>
                             </div>
                             <div id="password-change-msg" style="margin-top: 0.5rem;"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ===== Terminal Page ===== -->
+            <section id="page-terminal" class="page">
+                <div class="web-terminal-container">
+                    <div class="web-terminal" id="web-terminal-wrapper">
+                        <div class="web-term-header">
+                            <div class="web-term-dots">
+                                <span class="web-term-dot red"></span>
+                                <span class="web-term-dot yellow"></span>
+                                <span class="web-term-dot green"></span>
+                            </div>
+                            <span class="web-term-title" id="web-term-title">pentester@atlas ~ bash</span>
+                            <div class="web-term-actions">
+                                <button class="web-term-action-btn" onclick="webTermClear()" title="Clear">⌫
+                                    clear</button>
+                                <button class="web-term-action-btn" onclick="webTermFullscreen()" title="Fullscreen">⛶
+                                    expand</button>
+                            </div>
+                        </div>
+                        <div id="xterm-container" style="flex:1; overflow:hidden;"></div>
+                        <div class="web-term-statusbar">
+                            <div class="status-left">
+                                <span class="status-indicator" id="ws-status">CONNECTING</span>
+                                <span>bash</span>
+                            </div>
+                            <div class="status-right">
+                                <span id="web-term-session-time">SESSION: 0:00</span>
+                                <span>UTF-8</span>
+                            </div>
                         </div>
                     </div>
                 </div>

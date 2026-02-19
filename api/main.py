@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from api.routes import scans, checks, reports, presets, auth, dashboard, activity, scheduler
+from api.routes import scans, checks, reports, presets, auth, dashboard, activity, scheduler, terminal
 
 
 @asynccontextmanager
@@ -77,6 +77,7 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(activity.router, prefix="/api")
 app.include_router(scheduler.router, prefix="/api")
+app.include_router(terminal.router, prefix="/api")
 
 # Mount static files for Web UI
 web_dir = Path(__file__).parent.parent / "web"
